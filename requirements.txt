@@ -1,0 +1,8 @@
+streamlit>=1.50,<2
+# Keep NumPy on the 1.x line for compatibility with computer-vision wheels.
+numpy==1.26.4
+# Headless OpenCV avoids GUI/system-library issues on cloud hosting.
+opencv-python-headless==4.10.0.84
+ultralytics>=8.3,<9
+pandas>=2.2,<4
+Pillow>=10,<13
