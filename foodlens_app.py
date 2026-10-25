@@ -2,7 +2,6 @@ import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
 import pandas as pd
-import cv2
 
 # ==========================================================
 # FOODLENS AI
@@ -479,25 +478,9 @@ if uploaded_file is not None:
             "🤖 FoodLens AI is analyzing the image..."
         ):
 
-            # Use one confidence threshold for both the preview and the summary.
-            # YOLO applies Non-Maximum Suppression (NMS) during prediction.
-            results = model.predict(
-                source=image,
-                conf=0.35,
-                iou=0.50,
-                max_det=30,
-                verbose=False
-            )
+            results = model(image, conf=0.20)
 
-            # Draw the detections once, with smaller and cleaner labels.
-            # Ultralytics returns a BGR NumPy image; convert it to RGB for Streamlit.
-            annotated = results[0].plot(
-                labels=True,
-                conf=True,
-                line_width=2,
-                font_size=12
-            )
-            annotated = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+            annotated = results[0].plot()
 
             # Store EVERY detected instance, not just one confidence per food type.
             # Example: 5 visible apples should count as 5 apple detections.
@@ -511,7 +494,7 @@ if uploaded_file is not None:
                     confidence = float(box.conf[0])
                     food_name = model.names[class_id].lower()
 
-                    if confidence >= 0.35 and food_name in nutrition:
+                    if confidence >= 0.25 and food_name in nutrition:
                         detected_foods.setdefault(food_name, []).append(confidence)
 
         st.success("✅ AI analysis complete — results are ready below.")
