@@ -154,6 +154,54 @@ nutrition = {
         "fibre": 2.4
     },
 
+    "mango": {
+        "calories": 60,
+        "protein": 0.8,
+        "carbs": 15.0,
+        "fat": 0.4,
+        "fibre": 1.6
+    },
+
+    "grapes": {
+        "calories": 69,
+        "protein": 0.7,
+        "carbs": 18.1,
+        "fat": 0.2,
+        "fibre": 0.9
+    },
+
+    "watermelon": {
+        "calories": 30,
+        "protein": 0.6,
+        "carbs": 7.6,
+        "fat": 0.2,
+        "fibre": 0.4
+    },
+
+    "strawberry": {
+        "calories": 32,
+        "protein": 0.7,
+        "carbs": 7.7,
+        "fat": 0.3,
+        "fibre": 2.0
+    },
+
+    "pineapple": {
+        "calories": 50,
+        "protein": 0.5,
+        "carbs": 13.1,
+        "fat": 0.1,
+        "fibre": 1.4
+    },
+
+    "papaya": {
+        "calories": 43,
+        "protein": 0.5,
+        "carbs": 10.8,
+        "fat": 0.3,
+        "fibre": 1.7
+    },
+
     "broccoli": {
         "calories": 34,
         "protein": 2.8,
@@ -219,6 +267,12 @@ food_emojis = {
     "apple": "🍎",
     "banana": "🍌",
     "orange": "🍊",
+    "mango": "🥭",
+    "grapes": "🍇",
+    "watermelon": "🍉",
+    "strawberry": "🍓",
+    "pineapple": "🍍",
+    "papaya": "🧡",
     "broccoli": "🥦",
     "carrot": "🥕",
     "sandwich": "🥪",
@@ -232,9 +286,21 @@ food_emojis = {
 # LOAD AI MODEL
 # ==========================================================
 
+# Open-vocabulary food classes. YOLO-World can be prompted with custom
+# categories, unlike the original COCO-only YOLO11n model.
+FOOD_CLASSES = [
+    "apple", "banana", "orange", "pizza", "cake", "donut",
+    "mango", "grapes", "watermelon", "strawberry", "pineapple",
+    "papaya", "carrot", "broccoli", "sandwich"
+]
+
+
 @st.cache_resource
 def load_model():
-    return YOLO("yolo11n.pt")
+    # This model downloads its weights on first launch; allow extra startup time.
+    detector = YOLO("yolov8s-worldv2.pt")
+    detector.set_classes(FOOD_CLASSES)
+    return detector
 
 
 model = load_model()
@@ -258,7 +324,7 @@ with st.sidebar:
     st.success("● System Ready")
 
     st.write("**Computer Vision Model**")
-    st.code("YOLO11n")
+    st.code("YOLO-World (custom food classes)")
 
     st.write("**Analysis Mode**")
     st.write("Educational Nutrition Analysis")
@@ -326,7 +392,7 @@ with info1:
     st.markdown(
         '<div class="dashboard-card">'
         '<div class="small-label">AI MODEL</div>'
-        '<h3>YOLO11n</h3>'
+        '<h3>YOLO-World</h3>'
         '<p>Real-time object detection</p>'
         '</div>',
         unsafe_allow_html=True
@@ -412,10 +478,12 @@ if uploaded_file is not None:
             "🤖 FoodLens AI is analyzing the image..."
         ):
 
-            results = model(image)
+            results = model(image, conf=0.20)
 
             annotated = results[0].plot()
 
+            # Store EVERY detected instance, not just one confidence per food type.
+            # Example: 5 visible apples should count as 5 apple detections.
             detected_foods = {}
 
             for result in results:
@@ -423,24 +491,11 @@ if uploaded_file is not None:
                 for box in result.boxes:
 
                     class_id = int(box.cls[0])
-
                     confidence = float(box.conf[0])
+                    food_name = model.names[class_id].lower()
 
-                    food_name = model.names[
-                        class_id
-                    ].lower()
-
-                    if (
-                        confidence >= 0.25
-                        and food_name in nutrition
-                    ):
-
-                        if (
-                            food_name not in detected_foods
-                            or confidence > detected_foods[food_name]
-                        ):
-
-                            detected_foods[food_name] = confidence
+                    if confidence >= 0.25 and food_name in nutrition:
+                        detected_foods.setdefault(food_name, []).append(confidence)
 
         st.success("✅ AI analysis complete — results are ready below.")
 
@@ -490,13 +545,17 @@ if uploaded_file is not None:
 
             metric1, metric2, metric3 = st.columns(3)
 
-            highest_confidence = max(
-                detected_foods.values()
-            )
+            all_confidences = [
+                confidence
+                for confidences in detected_foods.values()
+                for confidence in confidences
+            ]
+            highest_confidence = max(all_confidences)
+            total_detected_instances = len(all_confidences)
 
             metric1.metric(
-                "Detected Foods",
-                len(detected_foods)
+                "Detected Food Items",
+                total_detected_instances
             )
 
             metric2.metric(
@@ -515,46 +574,26 @@ if uploaded_file is not None:
             # CONFIDENCE RESULTS
             # ==================================================
 
-            for food, confidence in detected_foods.items():
+            for food, confidences in detected_foods.items():
 
                 left, middle, right = st.columns([2, 2, 1])
+                average_confidence = sum(confidences) / len(confidences)
+                item_count = len(confidences)
 
                 with left:
-
-                    emoji = food_emojis.get(
-                        food,
-                        "🍽️"
-                    )
-
-                    st.markdown(
-                        f"### {emoji} {food.title()}"
-                    )
+                    emoji = food_emojis.get(food, "🍽️")
+                    st.markdown(f"### {emoji} {food.title()} × {item_count}")
 
                 with middle:
-
-                    st.progress(
-                        min(
-                            int(confidence * 100),
-                            100
-                        )
-                    )
-
-                    st.caption(
-                        f"{confidence * 100:.1f}% confidence"
-                    )
+                    st.progress(min(int(average_confidence * 100), 100))
+                    st.caption(f"Average confidence: {average_confidence * 100:.1f}%")
 
                 with right:
-
-                    if confidence >= 0.75:
-
+                    if average_confidence >= 0.75:
                         st.success("High")
-
-                    elif confidence >= 0.50:
-
+                    elif average_confidence >= 0.50:
                         st.warning("Medium")
-
                     else:
-
                         st.warning("Low")
 
             # ==================================================
@@ -565,24 +604,21 @@ if uploaded_file is not None:
 
             table_rows = []
 
-            for food, confidence in detected_foods.items():
+            for food, confidences in detected_foods.items():
 
-                if confidence >= 0.75:
-
+                average_confidence = sum(confidences) / len(confidences)
+                if average_confidence >= 0.75:
                     status = "High confidence"
-
-                elif confidence >= 0.50:
-
+                elif average_confidence >= 0.50:
                     status = "Moderate confidence"
-
                 else:
-
                     status = "Low confidence"
 
                 table_rows.append(
                     {
                         "Food": food.title(),
-                        "Confidence": f"{confidence * 100:.1f}%",
+                        "Count": len(confidences),
+                        "Average Confidence": f"{average_confidence * 100:.1f}%",
                         "Detection Status": status
                     }
                 )
@@ -607,15 +643,16 @@ if uploaded_file is not None:
             total_fat = 0
             total_fibre = 0
 
-            for food in detected_foods:
+            for food, confidences in detected_foods.items():
 
                 data = nutrition[food]
+                item_count = len(confidences)
 
-                total_calories += data["calories"]
-                total_protein += data["protein"]
-                total_carbs += data["carbs"]
-                total_fat += data["fat"]
-                total_fibre += data["fibre"]
+                total_calories += data["calories"] * item_count
+                total_protein += data["protein"] * item_count
+                total_carbs += data["carbs"] * item_count
+                total_fat += data["fat"] * item_count
+                total_fibre += data["fibre"] * item_count
 
             # ==================================================
             # DETECTED FOOD BREAKDOWN
@@ -638,20 +675,23 @@ if uploaded_file is not None:
 
             breakdown_rows = []
 
-            for food, confidence in detected_foods.items():
+            for food, confidences in detected_foods.items():
 
                 data = nutrition[food]
                 emoji = food_emojis.get(food, "🍽️")
+                item_count = len(confidences)
+                average_confidence = sum(confidences) / item_count
 
                 breakdown_rows.append(
                     {
                         "Food": f"{emoji} {food.title()}",
-                        "AI Confidence": f"{confidence * 100:.1f}%",
-                        "Calories": f"{data['calories']:.0f} kcal",
-                        "Protein": f"{data['protein']:.1f} g",
-                        "Carbs": f"{data['carbs']:.1f} g",
-                        "Fat": f"{data['fat']:.1f} g",
-                        "Fibre": f"{data['fibre']:.1f} g"
+                        "Count": item_count,
+                        "Average AI Confidence": f"{average_confidence * 100:.1f}%",
+                        "Calories (estimate)": f"{data['calories'] * item_count:.0f} kcal",
+                        "Protein": f"{data['protein'] * item_count:.1f} g",
+                        "Carbs": f"{data['carbs'] * item_count:.1f} g",
+                        "Fat": f"{data['fat'] * item_count:.1f} g",
+                        "Fibre": f"{data['fibre'] * item_count:.1f} g"
                     }
                 )
 
@@ -704,8 +744,8 @@ if uploaded_file is not None:
                 )
 
             st.caption(
-                "Total values are the sum of the approximate 100g "
-                "reference values for the detected food types."
+                "Estimates assume roughly 100g per detected item. Actual fruit sizes vary, "
+                "so these totals are illustrative rather than exact portion measurements."
             )
 
             # ==================================================
@@ -722,8 +762,7 @@ if uploaded_file is not None:
             )
 
             st.caption(
-                "Estimated values based on approximately "
-                "100g of each detected food."
+                "Estimated values assume approximately 100g per detected item."
             )
 
             # FIRST ROW
@@ -895,7 +934,7 @@ with st.expander("🔬 About the Technology"):
     )
 
     st.write(
-        "• **YOLO11n:** A pretrained computer-vision model "
+        "• **YOLO-World:** An open-vocabulary detector configured for the selected food classes. "
         "used to detect objects in images."
     )
 
